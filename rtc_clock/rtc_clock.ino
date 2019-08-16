@@ -1,5 +1,5 @@
-#include <Wire.h>
 #include <DS3231.h>
+#include <Wire.h>
 
 DS3231 Clock;
 

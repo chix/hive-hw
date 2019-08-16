@@ -1,13 +1,13 @@
-#include <SPI.h>
 #include <nRF24L01.h>
 #include <RF24.h>
+#include <SPI.h>
 
 #define CE_PIN 9
 #define CSN_PIN 10
 
 RF24 radio(CE_PIN, CSN_PIN);
 
-const byte thisSlaveAddress[5] = {'R','x','A','A','A'};
+const byte thisSlaveAddress[5] = {'R','x','A','A','B'};
 char dataReceived[10]; // this must match dataToSend in the TX
 int ackData[2] = {109, -4000};
 bool newData = false;

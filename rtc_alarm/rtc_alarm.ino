@@ -1,6 +1,6 @@
-#include <Wire.h>
 #include <DS3231.h>
 #include <LowPower.h>
+#include <Wire.h>
 
 #define WAKE_UP_PIN 2
 

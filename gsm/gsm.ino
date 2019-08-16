@@ -17,10 +17,9 @@ boolean debug = true;
 
 void setup()
 {
-  Serial.begin(9600);
-
-  // Begin serial communication with Arduino and SIM900
-  client.begin(9600);
+  if (debug) {
+    Serial.begin(9600);
+  }
 
   pinMode(POWER_PIN, OUTPUT);
   powerUpShield();
@@ -81,21 +80,17 @@ void powerDownShield()
     Serial.println("Stopping shield");
   }
 
-  client.println("AT");
-  clientReadResponse();
-  if (strstr(clientResponse, ".....") == NULL) {
-    emulateShieldPowerButton();
-  }
+  client.println("AT+CPOWD=1");
 
   i = 0;
-  while (strstr(clientResponse, ".....") == NULL) {
+  do {
     i++;
     if (i % 10 == 0) {
-      emulateShieldPowerButton();
+      client.println("AT+CPOWD=0");
     }
     client.println("AT");
     clientReadResponse();
-  }
+  } while (strstr(clientResponse, "......") == NULL);
 
   if (debug) {
     Serial.println("Shield stopped");

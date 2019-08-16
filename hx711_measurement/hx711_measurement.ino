@@ -1,4 +1,4 @@
-#include "HX711.h"
+#include <HX711.h>
 
 #define DT_PIN  7
 #define SCK_PIN  6

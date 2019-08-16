@@ -1,4 +1,4 @@
-#include "HX711.h"
+#include <HX711.h>
 #include <LiquidCrystal.h>
 
 #define RS_PIN 12

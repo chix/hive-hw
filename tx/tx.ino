@@ -1,8 +1,8 @@
-#include <SPI.h>
 #include <nRF24L01.h>
 #include <RF24.h>
+#include <SPI.h>
 
-#define CE_PIN 9
+#define CE_PIN 6
 #define CSN_PIN 10
 
 RF24 radio(CE_PIN, CSN_PIN);
