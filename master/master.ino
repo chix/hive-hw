@@ -17,23 +17,21 @@ SoftwareSerial client(TX_PIN, RX_PIN); // SIM900 shield client
 DS3231 Clock;
 RF24 radio(CE_PIN, CSN_PIN);
 
-// TODO test debug false
-const bool debug = true;
+const bool debug = false;
 const String masterNodeCode = "M0001"; // should be a secure token
 const byte numSlaves = 2;
 const byte slaveAddress[numSlaves][5] = {
   {'H', '0', '0', '0', '1'},
   {'H', '0', '0', '0', '2'}
 };
+int alarmHours = 1, alarmMinutes = 0, alarmSeconds = 0;
 char cmdReading = 'R', cmdSleep = 'S', cmdExecute = 'X', cmdNothing = 'N';
 byte slavesReadyForSleep[numSlaves] = {0, 0};
 byte slavesSleeping[numSlaves] = {0, 0};
 byte slaveConfirmation;
 float slaveReading = 0, slaveReadings[numSlaves] = {0, 0};
-unsigned long currentMillis = 0, prevMillis = 0, slaveSleepMillis = 0, maxLoopMillis = 56000; // set few seconds less than on slaves to prevent de-synchronization from radio errors
+unsigned long currentMillis = 0, prevMillis = 0, slaveSleepMillis = 0, maxLoopMillis = 60000;
 bool readingsDone, readyForSleep, sleeping = false;
-int Year, Month, Day, Hour, Minute, Second = 0;
-int alarmHours = 0, alarmMinutes = 0, alarmSeconds = 0; // set 1 minute less than on slave
 const String apiHost = "http://hive.martinkuric.cz";
 const byte maxClientResponseSize = 32;
 char clientResponseRow[maxClientResponseSize];
@@ -56,6 +54,12 @@ void setup()
   pinMode(WAKE_UP_PIN, INPUT_PULLUP);
   digitalWrite(WAKE_UP_PIN, HIGH);
   attachInterrupt(digitalPinToInterrupt(WAKE_UP_PIN), wakeUp, FALLING);
+
+  // Reset alarms
+  Clock.turnOffAlarm(1);
+  Clock.turnOffAlarm(2);
+  Clock.checkIfAlarm(1);
+  Clock.checkIfAlarm(2);
 
   // Configure shield power pin
   pinMode(POWER_PIN, OUTPUT);
@@ -80,6 +84,7 @@ void setup()
   getReadings(false);
   prepareForSleep(false);
   putToSleep(false);
+  resetDatetime(); // sync time with slaves during setup
   slaveSleepMillis = millis();
   powerUpShield();
   initGSM();
@@ -92,7 +97,6 @@ void setup()
 
 void loop()
 {
-  // TODO reset alarms
   if (wokeUp) {
     prevMillis = millis();
     currentMillis = millis();
@@ -114,6 +118,11 @@ void loop()
   getReadings(true);
   prepareForSleep(true);
   putToSleep(true);
+  // sync time with slaves each week
+  if (getTimestamp() > 86400l * 7) {
+    resetDatetime();
+  }
+
   slaveSleepMillis = millis();
 
   // send data to server
@@ -125,8 +134,12 @@ void loop()
     sendData();
     powerDownShield();
   } else {
-    // TODO maybe send a status report?
     if (debug) { Serial.println("Max loop time reached"); }
+    powerUpShield();
+    initGSM();
+    initGPRS();
+    sendErrorReport();
+    powerDownShield();
   }
 
   // go to sleep
@@ -225,7 +238,7 @@ void requestSlaveReadings()
       } else {
         slaveConfirmation = 0;
         if (debug) {
-          Serial.println("no response");
+          Serial.println("nr");
         }
       }
       radio.openWritingPipe(slaveAddress[n]);
@@ -246,13 +259,13 @@ void requestSlaveReadings()
             Serial.println(slaveReadings[n]);
           }
         } else {
-          if (debug) { Serial.println("no response"); }
+          if (debug) { Serial.println("nr"); }
         }
       } else {
-        if (debug) { Serial.println("error"); }
+        if (debug) { Serial.println("e"); }
       }
     } else {
-      if (debug) { Serial.println("error"); }
+      if (debug) { Serial.println("e"); }
     }
   }
 }
@@ -288,14 +301,14 @@ void prepareSlavesForSleep()
       } else {
         slaveConfirmation = 0;
         if (debug) {
-          Serial.println("no response");
+          Serial.println("nr");
         }        
       }
       if (slaveConfirmation == 1) {
         slavesReadyForSleep[n] = 1;
       }
     } else {
-      if (debug) { Serial.println("error"); }
+      if (debug) { Serial.println("e"); }
     }
   }
 }
@@ -331,14 +344,13 @@ void putSlavesToSleep()
       } else {
         slaveConfirmation = 0;
         if (debug) {
-          Serial.println("no response");
+          Serial.println("nr");
         }        
       }
-      if (slaveConfirmation == 1) {
-        slavesSleeping[n] = 1;
-      }
+      // do not check slaveConfirmation here, it does not matter
+      slavesSleeping[n] = 1;
     } else {
-      if (debug) { Serial.println("error"); }
+      if (debug) { Serial.println("e"); }
     }
   }
 }
@@ -521,6 +533,55 @@ void sendSetupNotification()
   clientReadResponse();
 }
 
+void sendErrorReport()
+{
+  byte n;
+  String errorReport = "{\"";
+  
+  for (n = 0; n < numSlaves; n++) {
+    errorReport.concat(char(slaveAddress[n][0]));
+    errorReport.concat(char(slaveAddress[n][1]));
+    errorReport.concat(char(slaveAddress[n][2]));
+    errorReport.concat(char(slaveAddress[n][3]));
+    errorReport.concat(char(slaveAddress[n][4]));
+    errorReport.concat("\":{\"w\":");
+    errorReport.concat(String(ceil(slaveReadings[n] * 1000)));
+    errorReport.concat(",\"p\":");
+    errorReport.concat(slavesReadyForSleep[n]);
+    errorReport.concat(",\"s\":");
+    errorReport.concat(slavesSleeping[n]);
+    errorReport.concat("}");
+    if ((n + 1) < numSlaves) {
+      errorReport.concat(",\"");
+    }
+  }
+  errorReport.concat("}");
+
+  if (debug) {
+    Serial.println(errorReport);
+    return;
+  }
+
+  client.println("AT+HTTPINIT");
+  clientReadResponse();
+  client.println("AT+HTTPPARA=\"CID\",1");
+  clientReadResponse();
+  client.println("AT+HTTPPARA=\"URL\",\"" + apiHost + "/api/nodes/" + masterNodeCode + "/error-report\"");
+  clientReadResponse();
+  client.println("AT+HTTPPARA=\"CONTENT\",\"application/json\"");
+  clientReadResponse();
+  client.println("AT+HTTPDATA=" + String(errorReport.length()) + ",100000");
+  clientReadResponse();
+  client.println(errorReport);
+  clientReadResponse();
+  client.println("AT+HTTPACTION=1");
+  clientReadResponse();
+  client.println("AT+HTTPREAD");
+  clientReadResponse();
+  client.println("AT+HTTPTERM");
+  clientReadResponse();
+}
+
 void clientRead()
 {
   static byte index = 0;
@@ -579,29 +640,10 @@ void clientClear()
 
 void setAlarmAndPowerDown(int secondsSinceSlaveSleep)
 {
-  int maxLoopSeconds = maxLoopMillis / 1000;
-  
-  alarmSeconds = maxLoopSeconds - secondsSinceSlaveSleep;
-
-  if (alarmSeconds <= 0) {
-    alarmSeconds = 1;
-  }
-  if (alarmSeconds > maxLoopSeconds) {
-    alarmSeconds = maxLoopSeconds;
-  }
-  
-  if (debug) {
-    Serial.print("Setting alarm and powering down for ");
-    Serial.print(alarmHours);
-    Serial.print(":");
-    Serial.print(alarmMinutes);
-    Serial.print(":");
-    Serial.println(alarmSeconds);
-  }
+  delay(1000);
   radio.flush_rx();
   radio.flush_tx();
   radio.powerDown();
-  resetDatetime();
   setAlarm();
   delay(1000);
   LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
@@ -609,12 +651,46 @@ void setAlarmAndPowerDown(int secondsSinceSlaveSleep)
 
 void setAlarm()
 {
-  Clock.setA1Time(Day, alarmHours, alarmMinutes, alarmSeconds, 0x0, false, false, false);
+  unsigned long timestamp = getTimestamp();
+  unsigned long alarmTimestamp = 1l * alarmHours * 60 * 60 + alarmMinutes * 60 + alarmSeconds;
+  unsigned long nextAlarmTimestamp = (timestamp / alarmTimestamp + 1) * alarmTimestamp;
+
+  short int days = nextAlarmTimestamp / 86400l;
+  short int hours = (nextAlarmTimestamp % 86400l) / 3600;
+  short int minutes = ((nextAlarmTimestamp % 86400l) % 3600) / 60;
+  short int seconds = ((nextAlarmTimestamp % 86400l) % 3600) % 60;
+
+  if (debug) {
+    Serial.print("Setting alarm and powering down until ");
+    Serial.print(days);
+    Serial.print("d ");
+    Serial.print(hours);
+    Serial.print(":");
+    Serial.print(minutes);
+    Serial.print(":");
+    Serial.println(seconds);
+  }
+
+  Clock.setA1Time(days, hours, minutes, seconds, 0x0, false, false, false);
 
   Clock.turnOnAlarm(1);
   Clock.turnOffAlarm(2);
   Clock.checkIfAlarm(1);
   Clock.checkIfAlarm(2);
+}
+
+unsigned long getTimestamp()
+{
+  bool h12 = false, PM = false;
+  unsigned long timestamp = 0;
+
+  short int days = Clock.getDate();
+  short int hours = Clock.getHour(h12, PM);
+  short int minutes = Clock.getMinute();
+  short int seconds = Clock.getSecond();
+  timestamp = 1l * days * 24 * 60 * 60 + 1l * hours * 60 * 60 + minutes * 60 + seconds;
+
+  return timestamp;
 }
 
 void printDatetime()
@@ -639,12 +715,17 @@ void printDatetime()
 void resetDatetime()
 {
   Clock.setClockMode(false);
-  Clock.setYear(Year);
-  Clock.setMonth(Month);
-  Clock.setDate(Day);
-  Clock.setHour(Hour);
-  Clock.setMinute(Minute);
-  Clock.setSecond(Second);
+  Clock.setYear(0);
+  Clock.setMonth(0);
+  Clock.setDate(0);
+  Clock.setHour(0);
+  Clock.setMinute(0);
+  Clock.setSecond(0);
+
+  if (debug) {
+    Serial.print("Resetting datetime to ");
+    printDatetime();
+  }
 }
 
 void wakeUp()
