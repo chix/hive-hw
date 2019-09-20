@@ -19,10 +19,10 @@ RF24 radio(CE_PIN, CSN_PIN);
 const bool debug = false;
 const byte thisSlaveAddress[5] = {'H','0','0','0','1'}, confirmationResponse = 1;
 int alarmHours = 1, alarmMinutes = 0, alarmSeconds = 0;
+const float scale_calibration_factor = 20750.0, scale_zero_factor = -0.5;
 char cmd, lastCmd;
 float reading = 0;
 unsigned long currentMillis = 0, prevMillis = 0, maxLoopMillis = 60000;
-const float scale_calibration_factor = 20750.0, scale_zero_factor = -0.5;
 bool wokeUp = false, setupRun = true, confirmationResponseLoaded = true;
 
 void setup()

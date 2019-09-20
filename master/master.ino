@@ -30,7 +30,7 @@ byte slavesReadyForSleep[numSlaves] = {0, 0};
 byte slavesSleeping[numSlaves] = {0, 0};
 byte slaveConfirmation;
 float slaveReading = 0, slaveReadings[numSlaves] = {0, 0};
-unsigned long currentMillis = 0, prevMillis = 0, slaveSleepMillis = 0, maxLoopMillis = 60000;
+unsigned long currentMillis = 0, prevMillis = 0, slaveSleepMillis = 0, maxLoopMillis = 60000, maxShieldMillis = 30000;
 bool readingsDone, readyForSleep, sleeping = false;
 const String apiHost = "http://hive.martinkuric.cz";
 const byte maxClientResponseSize = 32;
@@ -86,13 +86,13 @@ void setup()
   putToSleep(false);
   resetDatetime(); // sync time with slaves during setup
   slaveSleepMillis = millis();
-  powerUpShield();
-  initGSM();
-  initGPRS();
-  sendSetupNotification();
+  if (powerUpShield()) {
+    initGSM();
+    initGPRS();
+    sendSetupNotification();
+  }
   powerDownShield();
-  currentMillis = millis();
-  setAlarmAndPowerDown((currentMillis - slaveSleepMillis) / 1000);
+  setAlarmAndPowerDown();
 }
 
 void loop()
@@ -128,23 +128,24 @@ void loop()
   // send data to server
   currentMillis = millis();
   if ((currentMillis - prevMillis) < maxLoopMillis) {
-    powerUpShield();
-    initGSM();
-    initGPRS();
-    sendData();
+    if (powerUpShield()) {
+      initGSM();
+      initGPRS();
+      sendData();
+    }
     powerDownShield();
   } else {
     if (debug) { Serial.println("Max loop time reached"); }
-    powerUpShield();
-    initGSM();
-    initGPRS();
-    sendErrorReport();
+    if (powerUpShield()) {
+      initGSM();
+      initGPRS();
+      sendErrorReport();
+    }
     powerDownShield();
   }
 
   // go to sleep
-  currentMillis = millis();
-  setAlarmAndPowerDown((currentMillis - slaveSleepMillis) / 1000);
+  setAlarmAndPowerDown();
 }
 
 void getReadings(bool checkMaxLoopMillis)
@@ -363,12 +364,13 @@ void emulateShieldPowerButton()
   delay(1000);
 }
 
-void powerUpShield()
+bool powerUpShield()
 {
   int i;
+  bool up = false;
   
   if (debug) {
-    Serial.println("Starting shield");
+    Serial.println("Powering shield up");
   }
 
   client.println("AT");
@@ -378,31 +380,41 @@ void powerUpShield()
   }
 
   i = 0;
-  while (strstr(clientResponse, "OK") == NULL) {
+  prevMillis = millis();
+  currentMillis = millis();
+  while (strstr(clientResponse, "OK") == NULL && (currentMillis - prevMillis) < maxShieldMillis) {
     i++;
     if (i % 10 == 0) {
       emulateShieldPowerButton();
     }
     client.println("AT");
     clientReadResponse();
+    currentMillis = millis();
   }
+
+  up = (strstr(clientResponse, "OK") != NULL);
   
   if (debug) {
-    Serial.println("Shield started");
+    Serial.println(up ? "Shield up" : "Shield still down");
   }
+
+  return up;
 }
 
-void powerDownShield()
+bool powerDownShield()
 {
   int i;
+  bool down = false;
   
   if (debug) {
-    Serial.println("Stopping shield");
+    Serial.println("Powering shield down");
   }
 
   client.println("AT+CPOWD=1");
 
   i = 0;
+  prevMillis = millis();
+  currentMillis = millis();
   do {
     i++;
     if (i % 10 == 0) {
@@ -410,11 +422,15 @@ void powerDownShield()
     }
     client.println("AT");
     clientReadResponse();
-  } while (strstr(clientResponse, "......") == NULL);
+  } while (strstr(clientResponse, "......") == NULL && (currentMillis - prevMillis) < maxShieldMillis);
+
+  down = (strstr(clientResponse, "......") != NULL);
 
   if (debug) {
-    Serial.println("Shield stopped");
+    Serial.println(down ? "Shield down" : "Shield still up");
   }
+
+  return down;
 }
 
 void initGSM()
@@ -638,7 +654,7 @@ void clientClear()
   }
 }
 
-void setAlarmAndPowerDown(int secondsSinceSlaveSleep)
+void setAlarmAndPowerDown()
 {
   delay(1000);
   radio.flush_rx();
