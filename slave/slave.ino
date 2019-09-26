@@ -50,6 +50,7 @@ void setup()
   // set up scale
   scale.begin(DT_PIN, SCK_PIN);
   scale.set_scale(scale_calibration_factor);
+  scale.power_up();
 
   // set up radio rx
   radio.begin();
@@ -73,6 +74,7 @@ void loop()
     currentMillis = millis();
     lastCmd = ' ';
     reading = 0;
+    scale.power_up();
     radio.powerUp();
     radio.begin();
     radio.setDataRate(RF24_250KBPS);
@@ -159,6 +161,7 @@ void printResponse()
 void setAlarmAndPowerDown()
 {
   delay(1000);
+  scale.power_down();
   radio.flush_rx();
   radio.flush_tx();
   radio.powerDown();
