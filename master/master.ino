@@ -644,6 +644,8 @@ void clientReadResponse()
   }
   if (debug) {
     Serial.println(clientResponse);
+  } else {
+    delay(100);
   }
 }
 
