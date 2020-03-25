@@ -18,6 +18,9 @@ void setup() {
     }
     delay(100);
   }
+  LoRa.setSpreadingFactor(12);
+  LoRa.setSignalBandwidth(62.5E3);
+  LoRa.setCodingRate4(8);
   if (debug) {
     Serial.println("Waiting for packets...");
   }
@@ -39,8 +42,11 @@ void loop() {
     }
 
     if (debug) {
-      Serial.print("' with RSSI ");
-      Serial.println(LoRa.packetRssi());
+      Serial.println("'");
+      Serial.print("With RSSI ");
+      Serial.print(LoRa.packetRssi());
+      Serial.print(" and SNR ");
+      Serial.println(LoRa.packetSnr());
     }
   }
 }
