@@ -17,7 +17,6 @@ DS3231 Clock;
 RF24 radio(CE_PIN, CSN_PIN);
 
 const bool debug = false;
-const String masterNodeCode = "M0001"; // should be a secure token
 const byte numSlaves = 2;
 const byte slaveAddress[numSlaves][5] = {
   {'H', '0', '0', '0', '1'},
@@ -357,7 +356,7 @@ void putSlavesToSleep()
 void sendData()
 {
   byte n;
-  String reading = "{\"";
+  String reading = "D{\"";
   
   for (n = 0; n < numSlaves; n++) {
     reading.concat(char(slaveAddress[n][0]));
@@ -386,7 +385,7 @@ void sendData()
 void sendSetupNotification()
 {
   byte n;
-  String notification = "{\"";
+  String notification = "S{\"";
   
   for (n = 0; n < numSlaves; n++) {
     notification.concat(char(slaveAddress[n][0]));
@@ -415,7 +414,7 @@ void sendSetupNotification()
 void sendErrorReport()
 {
   byte n;
-  String errorReport = "{\"";
+  String errorReport = "E{\"";
   
   for (n = 0; n < numSlaves; n++) {
     errorReport.concat(char(slaveAddress[n][0]));
